@@ -35,6 +35,11 @@ team_t team = {
     ""};
 
 /* single word (4) or double word (8) alignment */
+static void *coalesce(void *ptr); /* 연결시킴 페이로드 포인터 반환하며, 헤더와 푸터 삽입 */
+static void *extend_heap(size_t size);/* 힙을 chunksize만큼 확장 확장 후 포인터 반환하는데 헤더에 끝부분까지 사이즈 적어놓음 */
+static void *find_fit(size_t size);/* 알맞은 자리 찾을때까지 for문 돌림 없으면 NULL */
+static void place(void* ptr,size_t size);/* 헤더와 푸터에 사이즈 정보 전달하고 뒤에 남은 데이터 자름 남은 데이터가16byte 이상일 경우 가용헤더 푸터 생성 */
+
 static char *bp;
 static char *heaplist_prologue;
 #define ALIGNMENT 8
@@ -202,15 +207,45 @@ void *mm_realloc(void *ptr, size_t size)
 {
     void *oldptr = ptr;
     void *newptr;
-    size_t copySize;
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
+    size = ALIGN(size);
+    if (ptr == NULL)
+    {
+        ptr = mm_malloc(size);
+        return ptr;
+    }
+    if (size == 0)
+    {
+        mm_free(ptr);
         return NULL;
-    copySize = GET_SIZE(HDRP(oldptr)) - DSIZE;
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    }
+    size_t asize = size + DSIZE;
+    size_t copySize = (GET_SIZE(HDRP(ptr)) - DSIZE);
+    size_t total = GET_SIZE(HDRP(ptr));
+    if (GET_SIZE(HDRP(ptr)) < asize)
+    {
+        if (GET_ALLOC(HDRP(NEXT_BLKP(ptr))) == 0)
+            total += GET_SIZE(HDRP(NEXT_BLKP(ptr)));
+        if (GET_ALLOC(FTRP(PREV_BLKP(ptr))) == 0)
+            total += GET_SIZE(FTRP(PREV_BLKP(ptr)));
+        if (total >= asize)
+        {
+            ptr = coalesce(ptr);
+            memmove(ptr, oldptr, copySize);
+            place(ptr, asize);
+            return ptr;
+        }
+        newptr = mm_malloc(size);
+        if (newptr == NULL)
+            return NULL;
+        memmove(newptr, ptr, copySize);
+        mm_free(ptr);
+        return newptr; 
+    }
+    else
+    {
+        place(ptr, asize);
+        if (GET_ALLOC(HDRP(NEXT_BLKP(ptr))) == 0)
+            coalesce(NEXT_BLKP(ptr));
+        return ptr;
+    }
 }
